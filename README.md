@@ -1,5 +1,7 @@
 # Google-Machines-Spark-Analysis
 
+# RDD Pyspark documentation: https://spark.apache.org/docs/latest/api/python/reference/api/pyspark.RDD.html
+
 ## Plan: 
 • What is the distribution of the machines according to their CPU capacity?  
 Use gs://clusterdata-2011-2/machine_events/ to get information about machines CPU. This table has the following information:  
