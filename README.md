@@ -17,6 +17,10 @@ Fields:
 We will use the field 5 (CPUs) to get information about the CPUs. I will divide the machines in 10 groups (0-0.1, 0.1-0.2 etc) and get the amount of machines that have that amount of CPU. Then, build graph with it.  
 
 • What is the percentage of computational power lost due to maintenance (a machine went offline and reconnected later)?  
+
+Add machine event id: 0
+Remove machine event id: 1
+
 Use gs://clusterdata-2011-2/machine_events/ to get the events that made machine go offline. Get each different machine and calculate the total amount of time they spent offline. Multiply the (offlineAmount/totalAmount) for CPU to get the final CPU power. Sum all CPU's again both with and without CPU power lost. Get (afterOffline/totalCPUPower). Show graph. 
 
 • What is the distribution of the number of jobs/tasks per scheduling class?  
