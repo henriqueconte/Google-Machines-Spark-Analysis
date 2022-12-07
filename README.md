@@ -28,3 +28,17 @@ Use gs://clusterdata-2011-2/machine_events/ to get the events that made machine 
 • In general, do tasks from the same job run on the same machine?  
 • Are the tasks that request the more resources the one that consume the more resources?  
 • Can we observe correlations between peaks of high resource consumption on some ma- chines and task eviction events?  
+
+
+## Question 3
+* What is the distribution of the number of jobs/tasks per scheduling class?
+
+The job events table contains the following fields:
+0. timestamp
+1. missing info
+2. job ID
+3. event type
+4. user name
+5. scheduling class
+6. job name
+7. logical job name
