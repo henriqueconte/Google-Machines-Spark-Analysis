@@ -143,7 +143,6 @@ def exercise_3():
 	jobEvents = sc.textFile("./data/part-00000-of-00500.csv")
 	jobsEntries = jobEvents.map(lambda x: x.split(','))
 	jobsColumnsNames = ["Timestamp", "MissingInfo", "JobID", "EventType", "Username", "SchedulingClass", "JobName", "LogicalJobName"]
-
 	jobsDf = jobsEntries.toDF(jobsColumnsNames)
 
 	jobsDf.select("SchedulingClass") \
@@ -152,10 +151,37 @@ def exercise_3():
 		.sort("SchedulingClass") \
 		.show(truncate=False)
 
-# group by machineID
-# 
+### Exercise 4
+# Eviction event type is 2
+def exercise_4():
+	jobEvents = sc.textFile("./data/allJobEvents.csv")
+	# jobEvents = sc.textFile("./data/part-00000-of-00500.csv")
+	jobsEntries = jobEvents.map(lambda x: x.split(','))
+	jobsColumnsNames = ["Timestamp", "MissingInfo", "JobID", "EventType", "Username", "SchedulingClass", "JobName", "LogicalJobName"]
+	jobsDf = jobsEntries.toDF(jobsColumnsNames)
 
-exercise_3()
+
+	eventsCount = jobsDf.select("SchedulingClass", "EventType") \
+		.groupBy("SchedulingClass") \
+		.count() \
+		.withColumnRenamed("count", "Events") \
+		.sort("SchedulingClass")
+
+	evictionEventCount = jobsDf.select("SchedulingClass", "EventType") \
+		.where(jobsDf.EventType == 2) \
+		.groupBy("SchedulingClass") \
+		.count() \
+		.withColumnRenamed("count", "Evictions") \
+		.sort("SchedulingClass")
+
+	jointEvents = eventsCount \
+		.join(evictionEventCount, ["SchedulingClass"], "left")
+
+	jointEvents = jointEvents \
+		.withColumn("Evictions", f.when(jointEvents.Evictions.isNull(), 0).otherwise(jointEvents.Evictions)) \
+		.show(truncate=True)
+
+exercise_4()
 
 
 
