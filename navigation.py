@@ -181,7 +181,54 @@ def exercise_4():
 		.withColumn("Evictions", f.when(jointEvents.Evictions.isNull(), 0).otherwise(jointEvents.Evictions)) \
 		.show(truncate=True)
 
-exercise_4()
+# In general, do tasks from the same job run on the same machine?
+# Use fields jobID (2), and task index(3) machineID(4).
+# Group by jobID, show machines
+def exercise_5():
+	taskEvents = sc.textFile("./data/taskEvents/part-00000-of-00500.csv")
+	taskEntries = taskEvents.map(lambda x: x.split(','))
+	taskColumnsNames = ["Timestamp", "MissingInfo", "JobID", "TaskIndex", "MachineID", "EventType", "Username", "SchedulingClass", "Priority", "CPUCores", "RAM", "Disk", "Constraint"]
+	tasksDf = taskEntries.toDF(taskColumnsNames)
+
+	# First, we can take a quick look at the data and see that the first job
+	# has 10 different tasks, and each task is executed in a different machine.
+	# tasksDf \
+	# 	.select("JobID", "TaskIndex","MachineID") \
+	# 	.groupBy("JobID", "TaskIndex", "MachineID") \
+	# 	.agg(f.countDistinct("TaskIndex"), f.countDistinct("MachineID")) \
+	# 	.sort("JobID") \
+	# 	.show(truncate=True)
+
+	# Now let's see how this applies to the rest of the data
+	# We will get the percentage of jobs that are executed in multiple machines
+
+	# Gets all the jobs
+	jobsCount = tasksDf \
+		.groupBy("JobID") \
+		.count() \
+		.count()
+
+	# Gets all the jobs that run in more than one machine
+	jobsRunningInMultipleMachines = tasksDf \
+		.groupBy("JobID") \
+		.agg(f.countDistinct("MachineID").alias("AmountOfMachines")) # CHANGE HERE: ADD COUNT DISTINCT TASKINDEX
+
+	jobsRunningInMultipleMachinesCount = jobsRunningInMultipleMachines \
+		.filter(jobsRunningInMultipleMachines.AmountOfMachines > 1) \
+		.count()
+
+	print(jobsCount)
+	print(jobsRunningInMultipleMachinesCount)
+
+	multipleMachinesRatio = '%.2f'%(jobsRunningInMultipleMachinesCount / jobsCount)
+
+	print(multipleMachinesRatio, "% of the jobs run in multiple machines.")
+
+	
+	# jobsCount.show()
+	
+
+exercise_5()
 
 
 
