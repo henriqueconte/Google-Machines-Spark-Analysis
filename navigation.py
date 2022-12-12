@@ -192,12 +192,12 @@ def exercise_5():
 
 	# First, we can take a quick look at the data and see that the first job
 	# has 10 different tasks, and each task is executed in a different machine.
-	# tasksDf \
-	# 	.select("JobID", "TaskIndex","MachineID") \
-	# 	.groupBy("JobID", "TaskIndex", "MachineID") \
-	# 	.agg(f.countDistinct("TaskIndex"), f.countDistinct("MachineID")) \
-	# 	.sort("JobID") \
-	# 	.show(truncate=True)
+	tasksDf \
+		.select("JobID", "TaskIndex","MachineID") \
+		.groupBy("JobID", "TaskIndex", "MachineID") \
+		.agg(f.countDistinct("TaskIndex"), f.countDistinct("MachineID")) \
+		.sort("JobID") \
+		.show(truncate=True)
 
 	# Now let's see how this applies to the rest of the data
 	# We will get the percentage of jobs that are executed in multiple machines
@@ -211,24 +211,67 @@ def exercise_5():
 	# Gets all the jobs that run in more than one machine
 	jobsRunningInMultipleMachines = tasksDf \
 		.groupBy("JobID") \
-		.agg(f.countDistinct("MachineID").alias("AmountOfMachines")) # CHANGE HERE: ADD COUNT DISTINCT TASKINDEX
+		.agg(f.countDistinct("TaskIndex").alias("AmountOfTasks"), f.countDistinct("MachineID").alias("AmountOfMachines")) \
+		.sort("JobID")
+
+	jobsWithMultipleTasks = jobsRunningInMultipleMachines \
+		.filter(jobsRunningInMultipleMachines.AmountOfTasks > 1) \
+		.count()
 
 	jobsRunningInMultipleMachinesCount = jobsRunningInMultipleMachines \
+		.filter(jobsRunningInMultipleMachines.AmountOfTasks > 1) \
 		.filter(jobsRunningInMultipleMachines.AmountOfMachines > 1) \
 		.count()
 
-	print(jobsCount)
-	print(jobsRunningInMultipleMachinesCount)
+	multipleMachinesRatio = '%.2f'%(100 * jobsRunningInMultipleMachinesCount / jobsCount)
+	multiTaskRatio = '%.2f'%(100 * jobsRunningInMultipleMachinesCount / jobsWithMultipleTasks)
 
-	multipleMachinesRatio = '%.2f'%(jobsRunningInMultipleMachinesCount / jobsCount)
-
-	print(multipleMachinesRatio, "% of the jobs run in multiple machines.")
-
-	
-	# jobsCount.show()
+	print(str(multipleMachinesRatio) + "% of the jobs run in multiple machines.")
+	print("Among jobs with multiple tasks, " + str(multiTaskRatio) + "% of them run in multiple machines.")
 	
 
-exercise_5()
+# Are the tasks that request the more resources the one that consume the more resources?
+# Use taskEvents table to get JobID(2) and resource request for CPUCores(9).
+# Then, use taskUsage table to get JobID(2) and MeanCPUUsage(5).
+# Join using jobID and compare CPU cores and meanCPUUsage.
+
+# Maybe only use "AssignedMemUsage"(7)
+def exercise_6():
+	taskUsageColumns = ["StartTime", "EndTime", "JobID", "TaskIndex", "MachineID", "MeanCPUUsage", "CanonicalMemUsage", "AssignedMemUsage", "CacheUsage", "TotalCacheUsage", "MaxMemUsage", "MeanDiskTime", "MeanDiskSpace", "MaxCPUUsage", "MaxDiskTime", "CPI", "MAI", "SamplePortion", "AggType", "SampledCPUUsage"]
+	taskUsageEvents = sc.textFile("./data/taskUsage/part-00000-of-00500.csv")
+	taskEventEntries = taskUsageEvents.map(lambda x: x.split(','))
+	usageDf = taskEventEntries.toDF(taskUsageColumns)
+
+	taskEvents = sc.textFile("./data/taskEvents/part-00000-of-00500.csv")
+	taskEntries = taskEvents.map(lambda x: x.split(','))
+	taskColumnsNames = ["Timestamp", "MissingInfo", "JobID", "TaskIndex", "MachineID", "EventType", "Username", "SchedulingClass", "Priority", "CPUCores", "RAM", "Disk", "Constraint"]
+	tasksDf = taskEntries.toDF(taskColumnsNames)
+
+	# Create two lists: one with the (jobID, taskID, CPUCores, RAM),
+	# another with (jobID, taskID, MeanCPUUsage, AssignedMemUsage, MaxMemUsage, MaxCPUUsage).
+	# Then, plot 4 graphs with requestedParameter vs usedParameter
+	tasksDf = tasksDf \
+		.select("JobID", "TaskIndex", f.col("CPUCores").cast("float"), f.col("RAM").cast("float")) \
+		.filter((tasksDf.CPUCores != "") & (tasksDf.RAM != "")) \
+		.groupBy("JobID", "TaskIndex") \
+		.avg("CPUCores", "RAM")
+		# .filter((tasksDf.CPUCores.isNull() == False) & (tasksDf.RAM.isNull() == False))
+
+	usageDf = usageDf \
+		.select("JobID", "TaskIndex", f.col("MeanCPUUsage").cast("float"), f.col("AssignedMemUsage").cast("float"), f.col("MaxMemUsage").cast("float"), f.col("MaxCPUUsage").cast("float")) \
+		.groupBy("JobID", "TaskIndex") \
+		.avg("MeanCPUUsage", "AssignedMemUsage", "MaxMemUsage", "MaxCPUUsage")
+
+	mergedDf = tasksDf \
+		.join(usageDf, ["JobID", "TaskIndex"])
+
+	tasksDf.show(truncate=True)
+	usageDf.show(truncate=True)
+	mergedDf.show(truncate=True)
+
+
+
+exercise_6()
 
 
 

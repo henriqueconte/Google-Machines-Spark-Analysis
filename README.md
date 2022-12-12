@@ -62,3 +62,30 @@ The task events table contains the following fields:
 10. resource request for RAM
 11. resource request for local disk space
 12. different-machine constraint
+
+
+### Question 6
+
+
+The task resource usage table contains these fields:
+1. start time of the measurement period
+2. end time of the measurement period
+3. job ID
+4. task index
+5. machine ID
+6. mean CPU usage rate
+7. canonical memory usage
+8. assigned memory usage
+9. unmapped page cache memory usage
+10. total page cache memory usage
+11. maximum memory usage
+12. mean disk I/O time
+13. mean local disk space used
+14. maximum CPU usage
+15. maximum disk IO time
+16. cycles per instruction (CPI)
+17. memory accesses per instruction (MAI)
+18. sample portion
+19. aggregation type (1 if maximums from subcontainers were summed)
+20. sampled CPU usage: mean CPU usage during a random 1s sample in the
+measurement period (only in v2.1 and later)
