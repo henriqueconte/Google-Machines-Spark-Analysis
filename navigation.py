@@ -1,10 +1,15 @@
 from html import entities
 import sys
+import time
+
 from pyspark import SparkContext
+from pyspark import pandas as ps
 from pyspark.sql import SparkSession
 import pyspark.sql.functions as f
+import matplotlib.pyplot as plt
 
-import time
+# ps.options.plotting.backend = "plotly"
+# ps.set_option("plotting.backend", "plotly")
 
 # Finds out the index of "name" in the array firstLine 
 # returns -1 if it cannot find it
@@ -255,7 +260,6 @@ def exercise_6():
 		.filter((tasksDf.CPUCores != "") & (tasksDf.RAM != "")) \
 		.groupBy("JobID", "TaskIndex") \
 		.avg("CPUCores", "RAM")
-		# .filter((tasksDf.CPUCores.isNull() == False) & (tasksDf.RAM.isNull() == False))
 
 	usageDf = usageDf \
 		.select("JobID", "TaskIndex", f.col("MeanCPUUsage").cast("float"), f.col("AssignedMemUsage").cast("float"), f.col("MaxMemUsage").cast("float"), f.col("MaxCPUUsage").cast("float")) \
@@ -265,11 +269,28 @@ def exercise_6():
 	mergedDf = tasksDf \
 		.join(usageDf, ["JobID", "TaskIndex"])
 
-	tasksDf.show(truncate=True)
-	usageDf.show(truncate=True)
-	mergedDf.show(truncate=True)
+	pandasDf = ps.DataFrame(mergedDf)
 
+	
+	# tasksDf.show(truncate=True)
+	# usageDf.show(truncate=True)
+	# mergedDf.show(truncate=True)
 
+	pandasDf.plot.scatter(x="avg(CPUCores)", y="avg(MeanCPUUsage)", backend='matplotlib')
+	plt.title("CPU Cores requested x Mean CPU usage")
+	plt.show()
+
+	pandasDf.plot.scatter(x="avg(CPUCores)", y="avg(MaxCPUUsage)", backend='matplotlib')
+	plt.title("CPU Cores requested x Max CPU usage")
+	plt.show()
+
+	pandasDf.plot.scatter(x="avg(RAM)", y="avg(AssignedMemUsage)", backend='matplotlib')
+	plt.title("RAM requested x Assigned memory usage")
+	plt.show()
+
+	pandasDf.plot.scatter(x="avg(RAM)", y="avg(MaxMemUsage)", backend='matplotlib')
+	plt.title("RAM Requested x Max memory usage")
+	plt.show()
 
 exercise_6()
 
