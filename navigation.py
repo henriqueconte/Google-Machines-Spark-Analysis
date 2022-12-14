@@ -300,9 +300,27 @@ def exercise_6():
 # From those evicted events, get the average of the Max CPU consumption, Max Mem consumption and Max Disk Consumption.
 # From all events that weren't evicted, get the average of the Max CPU consumption.
 # Compare both numbers!
+
+
+# Show that machines that have higher resource consumption on a period are the ones with more evicted tasks.
+
+# If I group by timestamp, machineID. Sum max cpu/memory usage. 
+	# We will have the consumption for each machine in each timestamp.
+# Join with taskEvents using timestamp and machineID, and get their event type.
+	# We will have the the events for each machine in each timestamp.
+# Build graph showing how the number of evictions increases related to the power consumption.
+# Or, use histogram to get only 10% higher resource consumption periods/events, and get the amount of evictions.
+# Then, compare with the other 90%.
+
+
+# Use taskEvents table to get all events 
+# Join the jobID + taskIndex from taskEvents table with taskUsage table.
+# 
+
 def exercise_7():
 	taskUsageColumns = ["StartTime", "EndTime", "JobID", "TaskIndex", "MachineID", "MeanCPUUsage", "CanonicalMemUsage", "AssignedMemUsage", "CacheUsage", "TotalCacheUsage", "MaxMemUsage", "MeanDiskTime", "MeanDiskSpace", "MaxCPUUsage", "MaxDiskTime", "CPI", "MAI", "SamplePortion", "AggType", "SampledCPUUsage"]
-	taskUsageEvents = sc.textFile("./data/taskUsage/part-00000-of-00500.csv")
+	# taskUsageEvents = sc.textFile("./data/taskUsage/part-00000-of-00500.csv")
+	taskUsageEvents = sc.textFile("./data/taskUsage/taskUsageCombined.csv")
 	taskEventEntries = taskUsageEvents.map(lambda x: x.split(','))
 	usageDf = taskEventEntries.toDF(taskUsageColumns)
 
@@ -311,42 +329,44 @@ def exercise_7():
 	taskColumnsNames = ["Timestamp", "MissingInfo", "JobID", "TaskIndex", "MachineID", "EventType", "Username", "SchedulingClass", "Priority", "CPUCores", "RAM", "Disk", "Constraint"]
 	tasksDf = taskEntries.toDF(taskColumnsNames)
 
-	evictedTasksDf = tasksDf \
-		.select("JobID", "TaskIndex", f.col("CPUCores").cast("float"), f.col("RAM").cast("float")) \
-		.filter((tasksDf.EventType == 2) & (tasksDf.CPUCores != "") & (tasksDf.RAM != "")) \
-		.groupBy("JobID", "TaskIndex") \
-		.avg("CPUCores", "RAM")
 
-	notEvictedTasksDf = tasksDf \
-		.select("JobID", "TaskIndex", f.col("CPUCores").cast("float"), f.col("RAM").cast("float")) \
-		.filter((tasksDf.EventType != 2) & (tasksDf.CPUCores != "") & (tasksDf.RAM != "")) \
-		.groupBy("JobID", "TaskIndex") \
-		.avg("CPUCores", "RAM")
+	# Why sum here?????/
+	machineByTimestamp = usageDf \
+		.select("StartTime", "EndTime", "MachineID", f.col("MaxMemUsage").cast("float"), f.col("MaxCPUUsage").cast("float")) \
+		.groupBy("StartTime", "EndTime", "MachineID") \
+		.sum("MaxCPUUsage") \
 
-	usageDf = usageDf \
-		.select("JobID", "TaskIndex", f.col("MeanCPUUsage").cast("float"), f.col("AssignedMemUsage").cast("float"), f.col("MaxMemUsage").cast("float"), f.col("MaxCPUUsage").cast("float")) \
-		.groupBy("JobID", "TaskIndex") \
-		.avg("MaxMemUsage", "MaxCPUUsage")
-
-	evictedTasksUsage = evictedTasksDf \
-		.join(usageDf, ["JobID", "TaskIndex"])
-
-	notEvictedTasksUsage = notEvictedTasksDf \
-		.join(usageDf, ["JobID", "TaskIndex"])
-
-	print("Average Max CPU Usage of evicted tasks: ", evictedTasksUsage.select(f.mean("avg(MaxCPUUsage)")).collect())
+	machineByTimestamp.show(truncate=True)
 	
-	print("Average Max CPU Usage of not evicted tasks: ", notEvictedTasksUsage.select(f.mean("avg(MaxCPUUsage)")).collect())
+	taskByTimestamp = tasksDf \
+		.select("TimeStamp", "MachineID","EventType") \
+		.where(tasksDf.EventType == 2)
 
-	print("Average Max memory usage of evicted tasks: ", evictedTasksUsage.select(f.mean("avg(MaxMemUsage)")).collect())
+	machinesAndTasks = machineByTimestamp \
+		.join(taskByTimestamp, [(taskByTimestamp.TimeStamp > machineByTimestamp.StartTime), (taskByTimestamp.TimeStamp < machineByTimestamp.EndTime), (taskByTimestamp.MachineID == machineByTimestamp.MachineID)]) \
+		.drop(taskByTimestamp.MachineID) \
+		.drop(taskByTimestamp.EventType)
 
-	print("Average Max memory usage of not evicted tasks: ", notEvictedTasksUsage.select(f.mean("avg(MaxMemUsage)")).collect())
+	evictedPerTimestamp = machinesAndTasks \
+		.groupBy("StartTime", "EndTime", "MachineID") \
+		.agg(f.countDistinct("TimeStamp").alias("EvictedEvents"), f.avg("sum(MaxCPUUsage)")) \
+		.sort(f.desc("EvictedEvents"))
 	
-	# evictedTasksDf.show()
-	# notEvictedTasksDf.show()
-	# usageDf.show()
-	# evictedTasksUsage.show()
-	# notEvictedTasksUsage.show()
+	evictedPerCPU = evictedPerTimestamp \
+		.select("EvictedEvents", "avg(sum(MaxCPUUsage))") \
+		.groupBy("EvictedEvents") \
+		.avg("avg(sum(MaxCPUUsage))")
+
+	evictedPerCPU.show(truncate=False)
+
+	# taskByTimestamp.show(truncate=True)
+	# machinesAndTasks.show(truncate=True)
+	# evictedPerTimestamp.show(truncate=True)
+
+	# pandasDf = ps.DataFrame(evictedPerCPU)
+
+	# pandasDf.plot(x="EvictedEvents", y="avg(avg(sum(MaxCPUUsage)))", backend="matplotlib")
+	# plt.show()
 
 
 exercise_7()
