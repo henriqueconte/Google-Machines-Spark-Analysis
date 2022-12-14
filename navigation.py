@@ -158,6 +158,8 @@ def exercise_3():
 
 ### Exercise 4
 # Eviction event type is 2
+
+# TODO: Add taskEvents table analysis.
 def exercise_4():
 	jobEvents = sc.textFile("./data/allJobEvents.csv")
 	# jobEvents = sc.textFile("./data/part-00000-of-00500.csv")
@@ -292,7 +294,62 @@ def exercise_6():
 	plt.title("RAM Requested x Max memory usage")
 	plt.show()
 
-exercise_6()
+### Can we observe correlations between peaks of high resource consumption on some machines and task eviction events?
+# Use taskEvents table to get all evicted events (events with eventType(5) == 2).
+# Join the jobID + taskIndex from taskEvents table with taskUsage table.
+# From those evicted events, get the average of the Max CPU consumption, Max Mem consumption and Max Disk Consumption.
+# From all events that weren't evicted, get the average of the Max CPU consumption.
+# Compare both numbers!
+def exercise_7():
+	taskUsageColumns = ["StartTime", "EndTime", "JobID", "TaskIndex", "MachineID", "MeanCPUUsage", "CanonicalMemUsage", "AssignedMemUsage", "CacheUsage", "TotalCacheUsage", "MaxMemUsage", "MeanDiskTime", "MeanDiskSpace", "MaxCPUUsage", "MaxDiskTime", "CPI", "MAI", "SamplePortion", "AggType", "SampledCPUUsage"]
+	taskUsageEvents = sc.textFile("./data/taskUsage/part-00000-of-00500.csv")
+	taskEventEntries = taskUsageEvents.map(lambda x: x.split(','))
+	usageDf = taskEventEntries.toDF(taskUsageColumns)
+
+	taskEvents = sc.textFile("./data/taskEvents/part-00000-of-00500.csv")
+	taskEntries = taskEvents.map(lambda x: x.split(','))
+	taskColumnsNames = ["Timestamp", "MissingInfo", "JobID", "TaskIndex", "MachineID", "EventType", "Username", "SchedulingClass", "Priority", "CPUCores", "RAM", "Disk", "Constraint"]
+	tasksDf = taskEntries.toDF(taskColumnsNames)
+
+	evictedTasksDf = tasksDf \
+		.select("JobID", "TaskIndex", f.col("CPUCores").cast("float"), f.col("RAM").cast("float")) \
+		.filter((tasksDf.EventType == 2) & (tasksDf.CPUCores != "") & (tasksDf.RAM != "")) \
+		.groupBy("JobID", "TaskIndex") \
+		.avg("CPUCores", "RAM")
+
+	notEvictedTasksDf = tasksDf \
+		.select("JobID", "TaskIndex", f.col("CPUCores").cast("float"), f.col("RAM").cast("float")) \
+		.filter((tasksDf.EventType != 2) & (tasksDf.CPUCores != "") & (tasksDf.RAM != "")) \
+		.groupBy("JobID", "TaskIndex") \
+		.avg("CPUCores", "RAM")
+
+	usageDf = usageDf \
+		.select("JobID", "TaskIndex", f.col("MeanCPUUsage").cast("float"), f.col("AssignedMemUsage").cast("float"), f.col("MaxMemUsage").cast("float"), f.col("MaxCPUUsage").cast("float")) \
+		.groupBy("JobID", "TaskIndex") \
+		.avg("MaxMemUsage", "MaxCPUUsage")
+
+	evictedTasksUsage = evictedTasksDf \
+		.join(usageDf, ["JobID", "TaskIndex"])
+
+	notEvictedTasksUsage = notEvictedTasksDf \
+		.join(usageDf, ["JobID", "TaskIndex"])
+
+	print("Average Max CPU Usage of evicted tasks: ", evictedTasksUsage.select(f.mean("avg(MaxCPUUsage)")).collect())
+	
+	print("Average Max CPU Usage of not evicted tasks: ", notEvictedTasksUsage.select(f.mean("avg(MaxCPUUsage)")).collect())
+
+	print("Average Max memory usage of evicted tasks: ", evictedTasksUsage.select(f.mean("avg(MaxMemUsage)")).collect())
+
+	print("Average Max memory usage of not evicted tasks: ", notEvictedTasksUsage.select(f.mean("avg(MaxMemUsage)")).collect())
+	
+	# evictedTasksDf.show()
+	# notEvictedTasksDf.show()
+	# usageDf.show()
+	# evictedTasksUsage.show()
+	# notEvictedTasksUsage.show()
+
+
+exercise_7()
 
 
 
