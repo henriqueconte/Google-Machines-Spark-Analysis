@@ -319,8 +319,8 @@ def exercise_6():
 
 def exercise_7():
 	taskUsageColumns = ["StartTime", "EndTime", "JobID", "TaskIndex", "MachineID", "MeanCPUUsage", "CanonicalMemUsage", "AssignedMemUsage", "CacheUsage", "TotalCacheUsage", "MaxMemUsage", "MeanDiskTime", "MeanDiskSpace", "MaxCPUUsage", "MaxDiskTime", "CPI", "MAI", "SamplePortion", "AggType", "SampledCPUUsage"]
-	# taskUsageEvents = sc.textFile("./data/taskUsage/part-00000-of-00500.csv")
-	taskUsageEvents = sc.textFile("./data/taskUsage/taskUsageCombined.csv")
+	taskUsageEvents = sc.textFile("./data/taskUsage/part-00000-of-00500.csv")
+	# taskUsageEvents = sc.textFile("./data/taskUsage/taskUsageCombined.csv")
 	taskEventEntries = taskUsageEvents.map(lambda x: x.split(','))
 	usageDf = taskEventEntries.toDF(taskUsageColumns)
 
@@ -328,45 +328,37 @@ def exercise_7():
 	taskEntries = taskEvents.map(lambda x: x.split(','))
 	taskColumnsNames = ["Timestamp", "MissingInfo", "JobID", "TaskIndex", "MachineID", "EventType", "Username", "SchedulingClass", "Priority", "CPUCores", "RAM", "Disk", "Constraint"]
 	tasksDf = taskEntries.toDF(taskColumnsNames)
-
-
-	# Why sum here?????/
-	machineByTimestamp = usageDf \
-		.select("StartTime", "EndTime", "MachineID", f.col("MaxMemUsage").cast("float"), f.col("MaxCPUUsage").cast("float")) \
-		.groupBy("StartTime", "EndTime", "MachineID") \
-		.sum("MaxCPUUsage") \
-
-	machineByTimestamp.show(truncate=True)
 	
 	taskByTimestamp = tasksDf \
 		.select("TimeStamp", "MachineID","EventType") \
 		.where(tasksDf.EventType == 2)
 
-	machinesAndTasks = machineByTimestamp \
-		.join(taskByTimestamp, [(taskByTimestamp.TimeStamp > machineByTimestamp.StartTime), (taskByTimestamp.TimeStamp < machineByTimestamp.EndTime), (taskByTimestamp.MachineID == machineByTimestamp.MachineID)]) \
+	machinesAndTasks = usageDf \
+		.select("StartTime", "EndTime", "MachineID", f.col("MaxMemUsage").cast("float"), f.col("MaxCPUUsage").cast("float")) \
+		.join(taskByTimestamp, [(taskByTimestamp.TimeStamp > usageDf.StartTime), (taskByTimestamp.TimeStamp < usageDf.EndTime), (taskByTimestamp.MachineID == usageDf.MachineID)]) \
 		.drop(taskByTimestamp.MachineID) \
 		.drop(taskByTimestamp.EventType)
 
 	evictedPerTimestamp = machinesAndTasks \
 		.groupBy("StartTime", "EndTime", "MachineID") \
-		.agg(f.countDistinct("TimeStamp").alias("EvictedEvents"), f.avg("sum(MaxCPUUsage)")) \
+		.agg(f.count("TimeStamp").alias("EvictedEvents"), f.avg("MaxCPUUsage"), f.avg("MaxMemUsage")) \
 		.sort(f.desc("EvictedEvents"))
 	
-	evictedPerCPU = evictedPerTimestamp \
-		.select("EvictedEvents", "avg(sum(MaxCPUUsage))") \
+	evictedPerCPUAndMem = evictedPerTimestamp \
+		.select("EvictedEvents", "avg(MaxCPUUsage)", "avg(MaxMemUsage)") \
 		.groupBy("EvictedEvents") \
-		.avg("avg(sum(MaxCPUUsage))")
+		.agg(f.avg("avg(MaxCPUUsage)"), f.avg("avg(MaxMemUsage)"))
 
-	evictedPerCPU.show(truncate=False)
+	# evictedPerCPUAndMem.show(truncate=False)
 
 	# taskByTimestamp.show(truncate=True)
 	# machinesAndTasks.show(truncate=True)
 	# evictedPerTimestamp.show(truncate=True)
 
-	# pandasDf = ps.DataFrame(evictedPerCPU)
+	pandasDf = ps.DataFrame(evictedPerCPUAndMem)
 
-	# pandasDf.plot(x="EvictedEvents", y="avg(avg(sum(MaxCPUUsage)))", backend="matplotlib")
-	# plt.show()
+	pandasDf.plot(x="EvictedEvents", y="avg(avg(MaxMemUsage))", backend="matplotlib")
+	plt.show()
 
 
 exercise_7()
