@@ -51,99 +51,41 @@ df = entries.toDF(columnsNames)
 
 entries.cache()
 
+# What is the distribution of the machines according to their CPU capacity?
 def exercise_1():
-	## Gets column with cpu capacity, filters empty values and removes machines ID duplicates
+	sectionsDistribution = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]
+
+	# Gets column with cpu capacity, filters empty values and removes machines ID duplicates
 	distinctCpus = entries \
 		.filter(lambda x: x[cpuCol] != "") \
 		.map(lambda x: [x[i] for i in [machineIDCol, cpuCol]]) \
 		.groupByKey() \
 		.map(lambda x: float(list(x[1])[0]))
 
-	cpu = entries \
-		.map(lambda x: x[cpuCol]) \
-		.filter(lambda x: x != "") \
-		.map(lambda x: float(x))
-
-	### Testing elements
-	print(distinctCpus.take(10))
-
-
-	### Exercise 1: What is the distribution of the machines according to their CPU capacity?
-
 	# Builds histogram: https://spark.apache.org/docs/latest/api/python/reference/api/pyspark.RDD.histogram.html#pyspark.RDD.histogram
-	cpuHist = cpu.histogram([0.0, 0.2, 0.4, 0.6, 0.8, 1.0])
-	distinctCpuHist = distinctCpus.histogram([0.0, 0.2, 0.4, 0.6, 0.8, 1.0])
+	distinctCpuHist = distinctCpus.histogram(sectionsDistribution)
 
 	# Note how different it is the amount with and without removing distinct CPU's.
-	print("Cpu size: ", cpu.count())
-	print("Distinct cpu size: ", distinctCpus.count())
 
-	print(cpuHist)
-	print(distinctCpuHist)
+	print("\nMachines analysed:", distinctCpus.count()) 
+	print("CPU capacity distribution: \n ([DISTRIBUTION], [AMOUNT_OF_VALUES] \n", distinctCpuHist)
+
+	# print("Array: ", distinctCpuHist[1])
+	# pandasDf = ps.DataFrame({'CPU capacity': sectionsDistribution, 'Machine Count': distinctCpuHist[1]})
+	pandasDf = ps.DataFrame({'CPU Capacity': ['0.2', '0.4', '0.6', '0.8', '1.0'], 'Machine count': distinctCpuHist[1]})
+	pandasDf.plot.bar(x='CPU Capacity', y='Machine count', backend='matplotlib')
+
+	plt.show()
 
 
 ### Exercise 2: What is the percentage of computational power lost due to maintenance (a machine went offline and reconnected later)?
-# Group by machineID,
-# For every machine, calculate the time spent offline (map!). To do this, get event 0 (add)
-
-# Filtering machinesID that have events 0, 1 and 0 again.
-
+# 
 def exercise_2():
-
-	# Groups events by machine ID
-	# machinesById = entries \
-	# 	.map(lambda x: [x[i] for i in [timeCol, machineIDCol, eventTypeCol, cpuCol]]) \
-	# 	.groupBy(lambda x: x[1])
-
-	# Gets the full timestamp (gets timestamp from last element) - PROBLEM: It is taking another element instead.
-	# lastTimestamp = entries.top(1)
-
-	# For each machine ID, calculate the amount of time it spent offline ()
-
-	# 0 (add)
-	# 3 (rem)
-	# 5 (add)
-	# 11 (rem)
-	# 19 (add)
-	# 25 - end
-
-	# time online: 3 + 6 + 6 = 15
-	# time offline: 2 + 8 = 10
-
-	# 0 + 5 + 19 = 24
-	# 3 + 11 = 14
-
-
-	# 0 (add)
-	# 18 (rem)
-	# 20 - end
-
-	# 0 = 0 (18)
-	# 18 = 18 (2)
-	# end = 0
-
-	# print("Result: ", machinesById.take(10))
-
-	# print("Last timestamp: ", lastTimestamp)
-
-	# print(df.select('Timestamp').collect())
-
-	positiveTimestamp = df \
-		.select(
-			f.round((df.Timestamp / 1000000)).alias('Timestamp'),
-			"MachineID",
-			"EventType"
-		) \
-		.where(df.EventType == 0) \
-		.groupBy("MachineID") \
-		.sum("Timestamp") \
-		.show(truncate=True)
-
+	pass
 	# print(machineById.count())
 
-### Exercise 3
+### Exercise 3: What is the distribution of the number of jobs/tasks per scheduling class?
 # Get Job event table, group by scheduling class (field 5), count number of elements per class, maybe histogram?
-
 def exercise_3():
 	jobEvents = sc.textFile("./data/part-00000-of-00500.csv")
 	jobsEntries = jobEvents.map(lambda x: x.split(','))
@@ -156,9 +98,10 @@ def exercise_3():
 		.sort("SchedulingClass") \
 		.show(truncate=False)
 
-### Exercise 4
-# Eviction event type is 2
+	# New part: getting distribution of tasks.
 
+### Exercise 4: Do tasks with a low scheduling class have a higher probability of being evicted?
+# Eviction event type is 2
 # TODO: Add taskEvents table analysis.
 def exercise_4():
 	jobEvents = sc.textFile("./data/allJobEvents.csv")
@@ -201,7 +144,7 @@ def exercise_5():
 	# has 10 different tasks, and each task is executed in a different machine.
 	tasksDf \
 		.select("JobID", "TaskIndex","MachineID") \
-		.groupBy("JobID", "TaskIndex", "MachineID") \
+		.groupBy("JobID") \
 		.agg(f.countDistinct("TaskIndex"), f.countDistinct("MachineID")) \
 		.sort("JobID") \
 		.show(truncate=True)
@@ -209,7 +152,7 @@ def exercise_5():
 	# Now let's see how this applies to the rest of the data
 	# We will get the percentage of jobs that are executed in multiple machines
 
-	# Gets all the jobs
+	# Gets all the jobs count
 	jobsCount = tasksDf \
 		.groupBy("JobID") \
 		.count() \
@@ -273,7 +216,6 @@ def exercise_6():
 
 	pandasDf = ps.DataFrame(mergedDf)
 
-	
 	# tasksDf.show(truncate=True)
 	# usageDf.show(truncate=True)
 	# mergedDf.show(truncate=True)
@@ -361,7 +303,10 @@ def exercise_7():
 	plt.show()
 
 
-exercise_7()
+# def exercise_8():
+
+
+exercise_6()
 
 
 
