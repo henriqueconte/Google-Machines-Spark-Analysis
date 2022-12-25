@@ -31,28 +31,19 @@ sparkSession = SparkSession.builder \
 
 sc.setLogLevel("ERROR")
 
-### Columns name:
-columnsNames = ["Timestamp", "MachineID", "EventType", "PlatformID", "CPU", "Memory"]
-
-### Columns indexes:
-timeCol = 0  
-machineIDCol = 1  
-eventTypeCol = 2
-platformIDCol = 3  
-cpuCol = 4  
-memoryCol = 5  
-
-# read the input file into an RDD[String]
-machineEvents = sc.textFile("./data/part-00000-of-00001.csv")
-
-entries = machineEvents.map(lambda x: x.split(','))
-
-df = entries.toDF(columnsNames)
-
-entries.cache()
-
 # What is the distribution of the machines according to their CPU capacity?
 def exercise_1():
+
+	### Columns indexes:
+	machineIDCol = 1  
+	cpuCol = 4 
+
+	# read the input file into an RDD[String]
+	machineEvents = sc.textFile("./data/machineEvents/part-00000-of-00001.csv")
+	entries = machineEvents.map(lambda x: x.split(','))
+	entries.cache()
+
+	# We will distribute the machines in 5 different sections based on their CPU capacity.
 	sectionsDistribution = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]
 
 	# Gets column with cpu capacity, filters empty values and removes machines ID duplicates
@@ -79,26 +70,38 @@ def exercise_1():
 
 
 ### Exercise 2: What is the percentage of computational power lost due to maintenance (a machine went offline and reconnected later)?
-# 
 def exercise_2():
 	pass
-	# print(machineById.count())
 
 ### Exercise 3: What is the distribution of the number of jobs/tasks per scheduling class?
 # Get Job event table, group by scheduling class (field 5), count number of elements per class, maybe histogram?
 def exercise_3():
-	jobEvents = sc.textFile("./data/part-00000-of-00500.csv")
+
+	# First, let's see the jobs distribution.
+	jobEvents = sc.textFile("./data/jobEvents/part-00000-of-00500.csv")
 	jobsEntries = jobEvents.map(lambda x: x.split(','))
 	jobsColumnsNames = ["Timestamp", "MissingInfo", "JobID", "EventType", "Username", "SchedulingClass", "JobName", "LogicalJobName"]
 	jobsDf = jobsEntries.toDF(jobsColumnsNames)
 
+	print("Jobs distribution by scheduling class")
 	jobsDf.select("SchedulingClass") \
 		.groupBy("SchedulingClass") \
 		.count() \
 		.sort("SchedulingClass") \
-		.show(truncate=False)
+		.show(truncate=True)
 
-	# New part: getting distribution of tasks.
+	# Now, let's see the tasks distribution.
+	taskEvents = sc.textFile("./data/taskEvents/mergedTaskEvents.csv")
+	taskEntries = taskEvents.map(lambda x: x.split(','))
+	taskColumnsNames = ["Timestamp", "MissingInfo", "JobID", "TaskIndex", "MachineID", "EventType", "Username", "SchedulingClass", "Priority", "CPUCores", "RAM", "Disk", "Constraint"]
+	tasksDf = taskEntries.toDF(taskColumnsNames)
+
+	print("Tasks distribution by scheduling class")
+	tasksDf.select("SchedulingClass") \
+		.groupBy("SchedulingClass") \
+		.count() \
+		.sort("SchedulingClass") \
+		.show(truncate=True)
 
 ### Exercise 4: Do tasks with a low scheduling class have a higher probability of being evicted?
 # Eviction event type is 2
@@ -302,11 +305,73 @@ def exercise_7():
 	pandasDf.plot(x="EvictedEvents", y="avg(avg(MaxMemUsage))", backend="matplotlib")
 	plt.show()
 
+# Do tasks that have a higher CPU usage also have a higher memory usage? 
+def exercise_8():
+	taskUsageColumns = ["StartTime", "EndTime", "JobID", "TaskIndex", "MachineID", "MeanCPUUsage", "CanonicalMemUsage", "AssignedMemUsage", "CacheUsage", "TotalCacheUsage", "MaxMemUsage", "MeanDiskTime", "MeanDiskSpace", "MaxCPUUsage", "MaxDiskTime", "CPI", "MAI", "SamplePortion", "AggType", "SampledCPUUsage"]
+	# taskUsageEvents = sc.textFile("./data/taskUsage/part-00000-of-00500.csv")
+	taskUsageEvents = sc.textFile("./data/taskUsage/taskUsageCombined.csv")
+	taskEventEntries = taskUsageEvents.map(lambda x: x.split(','))
+	usageDf = taskEventEntries.toDF(taskUsageColumns)
 
-# def exercise_8():
+	usageDf = usageDf \
+		.select("JobID", "TaskIndex", f.col("MeanCPUUsage").cast("float"), f.col("AssignedMemUsage").cast("float"), f.col("MaxCPUUsage").cast("float"), f.col("MaxMemUsage").cast("float"))
+
+	cpuByMemoryMean = usageDf \
+		.select("JobID", "TaskIndex", "MeanCPUUsage", "AssignedMemUsage", "MaxCPUUsage", "MaxMemUsage") \
+		.groupBy("JobID", "TaskIndex") \
+		.avg("MeanCPUUsage", "AssignedMemUsage", "MaxCPUUsage", "MaxMemUsage")
+
+	cpuMemMeanCorr = usageDf \
+		.stat.corr("MeanCPUUsage", "AssignedMemUsage")
+
+	cpuMemMaxCorr = usageDf \
+		.stat.corr("MaxCPUUsage", "MaxMemUsage")
+
+	print("Correlation between mean CPU and Mean memory usage:", cpuMemMeanCorr)
+
+	print("Correlation between max CPU and max memory usage:", cpuMemMaxCorr)
+
+	cpuByMemoryMeanPandas = ps.DataFrame(cpuByMemoryMean)
+
+	cpuByMemoryMeanPandas.plot.scatter(x="avg(MeanCPUUsage)", y="avg(AssignedMemUsage)", backend="matplotlib")
+	plt.title("MeanCPUUsage x AssignedMemUsage")
+	plt.show()
+
+	cpuByMemoryMeanPandas.plot.scatter(x="avg(MaxCPUUsage)", y="avg(MaxMemUsage)", backend="matplotlib")
+	plt.title("MaxCPUUsage x MaxMemUsage")
+	plt.show()
 
 
-exercise_6()
+# How many submitted tasks actually finish without being evicted, failing, being killed or lost? 
+def exercise_9():
+	# taskEvents = sc.textFile("./data/taskEvents/part-00000-of-00500.csv")
+	taskEvents = sc.textFile("./data/taskEvents/mergedTaskEvents.csv")
+	taskEntries = taskEvents.map(lambda x: x.split(','))
+	taskColumnsNames = ["Timestamp", "MissingInfo", "JobID", "TaskIndex", "MachineID", "EventType", "Username", "SchedulingClass", "Priority", "CPUCores", "RAM", "Disk", "Constraint"]
+	tasksDf = taskEntries.toDF(taskColumnsNames)
+
+	allTasksCount = tasksDf \
+		.select("JobID", "TaskIndex", "EventType") \
+		.groupBy("JobID", "TaskIndex") \
+		.count() \
+		.count()
+
+	unsucessfulTasksCount = tasksDf \
+		.select("JobID", "TaskIndex", "EventType") \
+		.filter((tasksDf.EventType == 2) | (tasksDf.EventType == 3) | (tasksDf.EventType == 5) | (tasksDf.EventType == 6)) \
+		.groupBy("JobID", "TaskIndex") \
+		.count() \
+		.count()
+
+	print("Amount of tasks:", allTasksCount)
+	print("Amount of tasks that were either evicted, killed, lost or failed:", unsucessfulTasksCount)
+	print()
+	print(str('%.2f'%(100*unsucessfulTasksCount/allTasksCount)) + "% of the tasks were evicted, killed, lost or failed at some point.")
+
+	
+
+
+exercise_9()
 
 
 
