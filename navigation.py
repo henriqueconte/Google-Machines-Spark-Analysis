@@ -5,6 +5,7 @@ import time
 from pyspark import SparkContext
 from pyspark import pandas as ps
 from pyspark.sql import SparkSession
+from pyspark.sql.window import Window
 import pyspark.sql.functions as f
 import matplotlib.pyplot as plt
 
@@ -70,15 +71,54 @@ def exercise_1():
 
 
 ### Exercise 2: What is the percentage of computational power lost due to maintenance (a machine went offline and reconnected later)?
+# I solved this question with collaboration from Pedro Henrique Pons Fiorentin and Guilherme Klein Kern.
 def exercise_2():
-	pass
+	machineEvents = sc.textFile("./data/machineEvents/part-00000-of-00001.csv")
+	eventsEntries = machineEvents.map(lambda x: x.split(','))
+	eventsEntries.cache()
+
+	columnsNames = ["Timestamp", "MachineID", "EventType", "PlatformID", "CPU", "Memory"]
+	eventsDf = eventsEntries.toDF(columnsNames)
+
+	eventsDf = eventsDf.select(f.col("Timestamp").cast("float"), "MachineID", "EventType", f.col("CPU").cast("float"))
+
+	timeStampWindow = Window.partitionBy("machineID").orderBy("Timestamp")
+
+	laggedDf = eventsDf \
+		.where(eventsDf.EventType != 2) \
+		.where(eventsDf.Timestamp != 0) \
+		.withColumn("timestampLag", f.lag("Timestamp", 1).over(timeStampWindow))
+
+	laggedDf = laggedDf \
+		.where(laggedDf.timestampLag.isNull() == False) \
+		.where(laggedDf.EventType == 0) \
+		.withColumn("lagDifference", f.col("Timestamp") - f.col("timestampLag"))
+		
+	laggedDf = laggedDf \
+		.withColumn("compLost", f.col("lagDifference") * f.col("CPU"))
+
+	lostCpu = laggedDf \
+		.agg(f.sum("compLost")).collect()[0][0]
+
+	fullTime = eventsDf \
+		.agg(f.max("Timestamp")).collect()[0][0] - eventsDf.agg(f.min("Timestamp")).collect()[0][0]
+
+	totalCpu = eventsDf \
+		.groupBy("CPU", "MachineID") \
+		.count() \
+		.agg(f.sum("CPU")).collect()[0][0]
+
+	workingCpu = (fullTime * totalCpu) - lostCpu
+
+	print("Computational power lost due to maintenance(a machine went offline and reconnected later):")
+	print('%.2f'%(100 * lostCpu / workingCpu), "%")
 
 ### Exercise 3: What is the distribution of the number of jobs/tasks per scheduling class?
 # Get Job event table, group by scheduling class (field 5), count number of elements per class, maybe histogram?
 def exercise_3():
 
 	# First, let's see the jobs distribution.
-	jobEvents = sc.textFile("./data/jobEvents/part-00000-of-00500.csv")
+	jobEvents = sc.textFile("./data/jobEvents/mergedJobEvents.csv")
 	jobsEntries = jobEvents.map(lambda x: x.split(','))
 	jobsColumnsNames = ["Timestamp", "MissingInfo", "JobID", "EventType", "Username", "SchedulingClass", "JobName", "LogicalJobName"]
 	jobsDf = jobsEntries.toDF(jobsColumnsNames)
@@ -107,12 +147,11 @@ def exercise_3():
 # Eviction event type is 2
 # TODO: Add taskEvents table analysis.
 def exercise_4():
-	jobEvents = sc.textFile("./data/allJobEvents.csv")
+	jobEvents = sc.textFile("./data/jobEvents/mergedJobEvents.csv")
 	# jobEvents = sc.textFile("./data/part-00000-of-00500.csv")
 	jobsEntries = jobEvents.map(lambda x: x.split(','))
 	jobsColumnsNames = ["Timestamp", "MissingInfo", "JobID", "EventType", "Username", "SchedulingClass", "JobName", "LogicalJobName"]
 	jobsDf = jobsEntries.toDF(jobsColumnsNames)
-
 
 	eventsCount = jobsDf.select("SchedulingClass", "EventType") \
 		.groupBy("SchedulingClass") \
@@ -131,14 +170,53 @@ def exercise_4():
 		.join(evictionEventCount, ["SchedulingClass"], "left")
 
 	jointEvents = jointEvents \
-		.withColumn("Evictions", f.when(jointEvents.Evictions.isNull(), 0).otherwise(jointEvents.Evictions)) \
+		.withColumn("Evictions", f.when(jointEvents.Evictions.isNull(), 0).otherwise(jointEvents.Evictions))
+
+	jointEvents = jointEvents \
+		.withColumn("Probability", jointEvents.Evictions / jointEvents.Events)
+
+	jointEvents \
+	.sort("SchedulingClass") \
+	.show(truncate=True)
+
+	# Now, let's see the tasks distribution.
+	taskEvents = sc.textFile("./data/taskEvents/mergedTaskEvents.csv")
+	taskEntries = taskEvents.map(lambda x: x.split(','))
+	taskColumnsNames = ["Timestamp", "MissingInfo", "JobID", "TaskIndex", "MachineID", "EventType", "Username", "SchedulingClass", "Priority", "CPUCores", "RAM", "Disk", "Constraint"]
+	tasksDf = taskEntries.toDF(taskColumnsNames)
+
+	tasksCount = tasksDf.select("SchedulingClass", "EventType") \
+		.groupBy("SchedulingClass") \
+		.count() \
+		.withColumnRenamed("count", "Events") \
+		.sort("SchedulingClass")
+
+	tasksEvictionCount = tasksDf.select("SchedulingClass", "EventType") \
+		.where(tasksDf.EventType == 2) \
+		.groupBy("SchedulingClass") \
+		.count() \
+		.withColumnRenamed("count", "Evictions") \
+		.sort("SchedulingClass")
+
+	jointTasksEvents = tasksCount \
+		.join(tasksEvictionCount, ["SchedulingClass"], "left")
+
+	jointTasksEvents = jointTasksEvents \
+		.withColumn("Evictions", f.when(jointTasksEvents.Evictions.isNull(), 0).otherwise(jointTasksEvents.Evictions))
+		# .show(truncate=True)
+
+	jointTasksEvents = jointTasksEvents \
+		.withColumn("Probability", jointTasksEvents.Evictions / jointTasksEvents.Events)
+
+	jointTasksEvents \
+		.sort("SchedulingClass") \
 		.show(truncate=True)
 
 # In general, do tasks from the same job run on the same machine?
 # Use fields jobID (2), and task index(3) machineID(4).
 # Group by jobID, show machines
 def exercise_5():
-	taskEvents = sc.textFile("./data/taskEvents/part-00000-of-00500.csv")
+	taskEvents = sc.textFile("./data/taskEvents/mergedTaskEvents.csv")
 	taskEntries = taskEvents.map(lambda x: x.split(','))
 	taskColumnsNames = ["Timestamp", "MissingInfo", "JobID", "TaskIndex", "MachineID", "EventType", "Username", "SchedulingClass", "Priority", "CPUCores", "RAM", "Disk", "Constraint"]
 	tasksDf = taskEntries.toDF(taskColumnsNames)
@@ -240,28 +318,6 @@ def exercise_6():
 	plt.show()
 
 ### Can we observe correlations between peaks of high resource consumption on some machines and task eviction events?
-# Use taskEvents table to get all evicted events (events with eventType(5) == 2).
-# Join the jobID + taskIndex from taskEvents table with taskUsage table.
-# From those evicted events, get the average of the Max CPU consumption, Max Mem consumption and Max Disk Consumption.
-# From all events that weren't evicted, get the average of the Max CPU consumption.
-# Compare both numbers!
-
-
-# Show that machines that have higher resource consumption on a period are the ones with more evicted tasks.
-
-# If I group by timestamp, machineID. Sum max cpu/memory usage. 
-	# We will have the consumption for each machine in each timestamp.
-# Join with taskEvents using timestamp and machineID, and get their event type.
-	# We will have the the events for each machine in each timestamp.
-# Build graph showing how the number of evictions increases related to the power consumption.
-# Or, use histogram to get only 10% higher resource consumption periods/events, and get the amount of evictions.
-# Then, compare with the other 90%.
-
-
-# Use taskEvents table to get all events 
-# Join the jobID + taskIndex from taskEvents table with taskUsage table.
-# 
-
 def exercise_7():
 	taskUsageColumns = ["StartTime", "EndTime", "JobID", "TaskIndex", "MachineID", "MeanCPUUsage", "CanonicalMemUsage", "AssignedMemUsage", "CacheUsage", "TotalCacheUsage", "MaxMemUsage", "MeanDiskTime", "MeanDiskSpace", "MaxCPUUsage", "MaxDiskTime", "CPI", "MAI", "SamplePortion", "AggType", "SampledCPUUsage"]
 	taskUsageEvents = sc.textFile("./data/taskUsage/part-00000-of-00500.csv")
@@ -273,36 +329,32 @@ def exercise_7():
 	taskEntries = taskEvents.map(lambda x: x.split(','))
 	taskColumnsNames = ["Timestamp", "MissingInfo", "JobID", "TaskIndex", "MachineID", "EventType", "Username", "SchedulingClass", "Priority", "CPUCores", "RAM", "Disk", "Constraint"]
 	tasksDf = taskEntries.toDF(taskColumnsNames)
-	
-	taskByTimestamp = tasksDf \
-		.select("TimeStamp", "MachineID","EventType") \
-		.where(tasksDf.EventType == 2)
 
+	taskByTimestamp = tasksDf \
+		.select("TimeStamp", "MachineID","EventType")
+
+	# Joining evicted tasks that happened in a timeframe
 	machinesAndTasks = usageDf \
 		.select("StartTime", "EndTime", "MachineID", f.col("MaxMemUsage").cast("float"), f.col("MaxCPUUsage").cast("float")) \
 		.join(taskByTimestamp, [(taskByTimestamp.TimeStamp > usageDf.StartTime), (taskByTimestamp.TimeStamp < usageDf.EndTime), (taskByTimestamp.MachineID == usageDf.MachineID)]) \
-		.drop(taskByTimestamp.MachineID) \
-		.drop(taskByTimestamp.EventType)
+		.drop(taskByTimestamp.MachineID)
 
-	evictedPerTimestamp = machinesAndTasks \
+	eventsPerTimestamp = machinesAndTasks \
 		.groupBy("StartTime", "EndTime", "MachineID") \
 		.agg(f.count("TimeStamp").alias("EvictedEvents"), f.avg("MaxCPUUsage"), f.avg("MaxMemUsage")) \
 		.sort(f.desc("EvictedEvents"))
 	
-	evictedPerCPUAndMem = evictedPerTimestamp \
+	evictedPerCPUAndMem = eventsPerTimestamp \
 		.select("EvictedEvents", "avg(MaxCPUUsage)", "avg(MaxMemUsage)") \
 		.groupBy("EvictedEvents") \
 		.agg(f.avg("avg(MaxCPUUsage)"), f.avg("avg(MaxMemUsage)"))
 
-	# evictedPerCPUAndMem.show(truncate=False)
-
-	# taskByTimestamp.show(truncate=True)
-	# machinesAndTasks.show(truncate=True)
-	# evictedPerTimestamp.show(truncate=True)
-
 	pandasDf = ps.DataFrame(evictedPerCPUAndMem)
 
 	pandasDf.plot(x="EvictedEvents", y="avg(avg(MaxMemUsage))", backend="matplotlib")
+	plt.show()
+
+	pandasDf.plot(x="EvictedEvents", y="avg(avg(MaxCPUUsage))", backend="matplotlib")
 	plt.show()
 
 # Do tasks that have a higher CPU usage also have a higher memory usage? 
@@ -371,7 +423,7 @@ def exercise_9():
 	
 
 
-exercise_9()
+exercise_2()
 
 
 
