@@ -436,10 +436,30 @@ def exercise_9():
 	print()
 	print(str('%.2f'%(100*unsucessfulTasksCount/allTasksCount)) + "% of the tasks were evicted, killed, lost or failed at some point.")
 
+
+# Extending the work: seeing the average number of CPU cores and memory per machine from Alibaba dataset
+def exercise_10():
+	machineEvents = sc.textFile("./data/alibaba.csv")
+	machineEntries = machineEvents.map(lambda x: x.split(','))
+	machineColumnsNames = ["MachineID", "Timestamp", "FailureDomain1", "FailureDomain2", "CPUCount", "MemorySize", "Status"]
+	machinesDf = machineEntries.toDF(machineColumnsNames)
+
+	cpuCountDf = machinesDf.select(f.col("CPUCount").cast("int"))
+	cpuPandasDf = ps.DataFrame(cpuCountDf)
+
+	plt.hist(cpuPandasDf, density=True, bins=100)
+	plt.title("Number of cpus per machine")
+	plt.show()
+
+	memoryDf = machinesDf.select(f.col("MemorySize").cast("float"))
+	memoryPandasDf = ps.DataFrame(memoryDf)
+
+	plt.hist(memoryPandasDf, density=True, bins=100)
+	plt.title("Memory size distribution")
+	plt.show()	
 	
-
-
-exercise_9()
+# Change method according to the exercise you want to execute
+exercise_2()
 
 
 
