@@ -71,7 +71,7 @@ def exercise_1():
 
 
 ### Exercise 2: What is the percentage of computational power lost due to maintenance (a machine went offline and reconnected later)?
-# I solved this question with collaboration from Pedro Henrique Pons Fiorentin and Guilherme Klein Kern.
+# I solved this question with help from Pedro Henrique Pons Fiorentin and Guilherme Klein Kern.
 def exercise_2():
 	machineEvents = sc.textFile("./data/machineEvents/part-00000-of-00001.csv")
 	eventsEntries = machineEvents.map(lambda x: x.split(','))
@@ -82,27 +82,34 @@ def exercise_2():
 
 	eventsDf = eventsDf.select(f.col("Timestamp").cast("float"), "MachineID", "EventType", f.col("CPU").cast("float"))
 
+	# Creates a partition rule
 	timeStampWindow = Window.partitionBy("machineID").orderBy("Timestamp")
 
+	# Gets only connect/disconnect events that happened after the initial timestamp, and creates a column 
+	# with the previous timestamp of the column
 	laggedDf = eventsDf \
 		.where(eventsDf.EventType != 2) \
 		.where(eventsDf.Timestamp != 0) \
 		.withColumn("timestampLag", f.lag("Timestamp", 1).over(timeStampWindow))
 
+	# Gets only the valid timestamps
 	laggedDf = laggedDf \
 		.where(laggedDf.timestampLag.isNull() == False) \
 		.where(laggedDf.EventType == 0) \
 		.withColumn("lagDifference", f.col("Timestamp") - f.col("timestampLag"))
 		
+	# Creates a column to get the computational power lost
 	laggedDf = laggedDf \
 		.withColumn("compLost", f.col("lagDifference") * f.col("CPU"))
 
+	# Sums the computational power lost
 	lostCpu = laggedDf \
 		.agg(f.sum("compLost")).collect()[0][0]
 
-	fullTime = eventsDf \
-		.agg(f.max("Timestamp")).collect()[0][0] - eventsDf.agg(f.min("Timestamp")).collect()[0][0]
+	# Gets the final timestamp
+	fullTime = eventsDf.agg(f.max("Timestamp")).collect()[0][0]
 
+	# Gets the total computational power
 	totalCpu = eventsDf \
 		.groupBy("CPU", "MachineID") \
 		.count() \
@@ -144,8 +151,6 @@ def exercise_3():
 		.show(truncate=True)
 
 ### Exercise 4: Do tasks with a low scheduling class have a higher probability of being evicted?
-# Eviction event type is 2
-# TODO: Add taskEvents table analysis.
 def exercise_4():
 	jobEvents = sc.textFile("./data/jobEvents/mergedJobEvents.csv")
 	# jobEvents = sc.textFile("./data/part-00000-of-00500.csv")
@@ -153,12 +158,14 @@ def exercise_4():
 	jobsColumnsNames = ["Timestamp", "MissingInfo", "JobID", "EventType", "Username", "SchedulingClass", "JobName", "LogicalJobName"]
 	jobsDf = jobsEntries.toDF(jobsColumnsNames)
 
+	# Gets the events per scheduling class
 	eventsCount = jobsDf.select("SchedulingClass", "EventType") \
 		.groupBy("SchedulingClass") \
 		.count() \
 		.withColumnRenamed("count", "Events") \
 		.sort("SchedulingClass")
 
+	# Gets the evicted events per scheduling class
 	evictionEventCount = jobsDf.select("SchedulingClass", "EventType") \
 		.where(jobsDf.EventType == 2) \
 		.groupBy("SchedulingClass") \
@@ -166,12 +173,15 @@ def exercise_4():
 		.withColumnRenamed("count", "Evictions") \
 		.sort("SchedulingClass")
 
+	# Joins both tables
 	jointEvents = eventsCount \
 		.join(evictionEventCount, ["SchedulingClass"], "left")
 
+	# Creates column evictions 
 	jointEvents = jointEvents \
 		.withColumn("Evictions", f.when(jointEvents.Evictions.isNull(), 0).otherwise(jointEvents.Evictions))
 
+	# Creates column with the probability of each scheduling class to be evicted
 	jointEvents = jointEvents \
 		.withColumn("Probability", jointEvents.Evictions / jointEvents.Events)
 
@@ -287,6 +297,7 @@ def exercise_6():
 		.groupBy("JobID", "TaskIndex") \
 		.avg("CPUCores", "RAM")
 
+	# Gets the average CPU and memory consumption per task of each job
 	usageDf = usageDf \
 		.select("JobID", "TaskIndex", f.col("MeanCPUUsage").cast("float"), f.col("AssignedMemUsage").cast("float"), f.col("MaxMemUsage").cast("float"), f.col("MaxCPUUsage").cast("float")) \
 		.groupBy("JobID", "TaskIndex") \
@@ -339,6 +350,7 @@ def exercise_7():
 		.join(taskByTimestamp, [(taskByTimestamp.TimeStamp > usageDf.StartTime), (taskByTimestamp.TimeStamp < usageDf.EndTime), (taskByTimestamp.MachineID == usageDf.MachineID)]) \
 		.drop(taskByTimestamp.MachineID)
 
+	# Gets the amount of events and their cpu and memory usage
 	eventsPerTimestamp = machinesAndTasks \
 		.groupBy("StartTime", "EndTime", "MachineID") \
 		.agg(f.count("TimeStamp").alias("EvictedEvents"), f.avg("MaxCPUUsage"), f.avg("MaxMemUsage")) \
@@ -368,11 +380,13 @@ def exercise_8():
 	usageDf = usageDf \
 		.select("JobID", "TaskIndex", f.col("MeanCPUUsage").cast("float"), f.col("AssignedMemUsage").cast("float"), f.col("MaxCPUUsage").cast("float"), f.col("MaxMemUsage").cast("float"))
 
+	# Gets the CPU and memory usage per task of the jobs
 	cpuByMemoryMean = usageDf \
 		.select("JobID", "TaskIndex", "MeanCPUUsage", "AssignedMemUsage", "MaxCPUUsage", "MaxMemUsage") \
 		.groupBy("JobID", "TaskIndex") \
 		.avg("MeanCPUUsage", "AssignedMemUsage", "MaxCPUUsage", "MaxMemUsage")
 
+	# Creates correlation of cpu and memory usage
 	cpuMemMeanCorr = usageDf \
 		.stat.corr("MeanCPUUsage", "AssignedMemUsage")
 
@@ -402,12 +416,14 @@ def exercise_9():
 	taskColumnsNames = ["Timestamp", "MissingInfo", "JobID", "TaskIndex", "MachineID", "EventType", "Username", "SchedulingClass", "Priority", "CPUCores", "RAM", "Disk", "Constraint"]
 	tasksDf = taskEntries.toDF(taskColumnsNames)
 
+	# Gets the amount of groups of tasks
 	allTasksCount = tasksDf \
 		.select("JobID", "TaskIndex", "EventType") \
 		.groupBy("JobID", "TaskIndex") \
 		.count() \
 		.count()
 
+	# Gets all the tasks that were interrupted or failed to complete.
 	unsucessfulTasksCount = tasksDf \
 		.select("JobID", "TaskIndex", "EventType") \
 		.filter((tasksDf.EventType == 2) | (tasksDf.EventType == 3) | (tasksDf.EventType == 5) | (tasksDf.EventType == 6)) \
@@ -423,7 +439,7 @@ def exercise_9():
 	
 
 
-exercise_2()
+exercise_9()
 
 
 
